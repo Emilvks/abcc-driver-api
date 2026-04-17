@@ -73,11 +73,13 @@ jobs:
 
       - name: Package release artifact
         run: |
-          tar czf "abcc-driver-api-v${{ inputs.version }}.tar.gz" \
+          TARBALL="abcc-driver-api-v${{ inputs.version }}.tar.gz"
+          tar czf "${RUNNER_TEMP}/${TARBALL}" \
             --exclude='.git' \
             --exclude='build' \
             --exclude='inc/build_info.h' \
             -C "$(dirname "$PWD")" "$(basename "$PWD")"
+          mv "${RUNNER_TEMP}/${TARBALL}" .
 
       - name: Create GitHub release
         env:
