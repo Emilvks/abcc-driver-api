@@ -1,0 +1,89 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. 1.4.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate version format
+        run: |
+          if ! echo "${{ inputs.version }}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Invalid version format '${{ inputs.version }}'. Expected X.Y.Z"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          ref: main
+
+      - name: Ensure on main branch
+        run: |
+          BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+          if [ "${BRANCH}" != "main" ]; then
+            echo "::error::Expected branch 'main', got '${BRANCH}'"
+            exit 1
+          fi
+
+      - name: Check tag does not exist
+        run: |
+          if git rev-parse "v${{ inputs.version }}" >/dev/null 2>&1; then
+            echo "::error::Tag v${{ inputs.version }} already exists"
+            exit 1
+          fi
+
+      - name: Update version.h
+        run: |
+          sed -i 's/#define PROJECT_VERSION ".*"/#define PROJECT_VERSION "${{ inputs.version }}"/' inc/version.h
+
+      - name: Commit version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add inc/version.h
+          git commit -m "release: v${{ inputs.version }}"
+
+      - name: Push commit
+        run: git push origin main
+
+      - name: Create and push tag
+        run: |
+          git tag "v${{ inputs.version }}"
+          git push origin "v${{ inputs.version }}"
+
+      - name: Build
+        run: |
+          cmake -B build
+          cmake --build build
+
+      - name: Show version
+        run: ./build/version_demo
+
+      - name: Package release artifact
+        run: |
+          tar czf "abcc-driver-api-v${{ inputs.version }}.tar.gz" \
+            --exclude='.git' \
+            --exclude='build' \
+            --exclude='inc/build_info.h' \
+            -C "$(dirname "$PWD")" "$(basename "$PWD")"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v${{ inputs.version }}" \
+            "abcc-driver-api-v${{ inputs.version }}.tar.gz" \
+            --title "v${{ inputs.version }}" \
+            --generate-notes
